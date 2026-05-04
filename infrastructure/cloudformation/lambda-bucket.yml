@@ -1,0 +1,31 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Interview Assistant — S3 bucket for Lambda deployment packages
+
+# Deploy this stack once before the backend stack.
+# The bucket stores Lambda zip files uploaded by CI/CD.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+
+Resources:
+  LambdaBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub ia-lambda-deployments-${Environment}-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+
+Outputs:
+  BucketName:
+    Value: !Ref LambdaBucket
+    Export:
+      Name: !Sub InterviewAssistant-${Environment}-LambdaBucket

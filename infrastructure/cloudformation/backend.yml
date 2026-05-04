@@ -1,0 +1,220 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Interview Assistant — Lambda + API Gateway (HTTP API)
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [prod, staging, dev]
+  LambdaS3Bucket:
+    Type: String
+    Description: S3 bucket containing Lambda deployment packages
+  LambdaS3Key:
+    Type: String
+    Description: S3 key for the Lambda zip
+    Default: backend/lambda.zip
+  AiApiUrl:
+    Type: String
+    Description: Custom AI API gateway URL
+    Default: ''
+  AiApiKey:
+    Type: String
+    Description: API key for the custom AI gateway
+    NoEcho: true
+    Default: ''
+  CorsOrigin:
+    Type: String
+    Default: 'https://interview-assistant.kotahirau.com'
+
+Resources:
+  # ── IAM role ──────────────────────────────────────────────────────────────
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ia-lambda-role-${Environment}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/interview-assistant-${Environment}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/interview-assistant-${Environment}/index/*'
+
+  # ── Lambda functions ───────────────────────────────────────────────────────
+  CommonEnv: &CommonEnv
+    DYNAMODB_TABLE: !Sub interview-assistant-${Environment}
+    AI_API_URL: !Ref AiApiUrl
+    AI_API_KEY: !Ref AiApiKey
+    CORS_ORIGIN: !Ref CorsOrigin
+    NODE_OPTIONS: '--enable-source-maps'
+
+  SessionsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ia-sessions-${Environment}
+      Runtime: nodejs20.x
+      Handler: handlers/sessions.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Ref LambdaS3Key
+      MemorySize: 256
+      Timeout: 15
+      Environment:
+        Variables:
+          DYNAMODB_TABLE: !Sub interview-assistant-${Environment}
+          AI_API_URL: !Ref AiApiUrl
+          AI_API_KEY: !Ref AiApiKey
+          CORS_ORIGIN: !Ref CorsOrigin
+
+  QuestionsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ia-questions-${Environment}
+      Runtime: nodejs20.x
+      Handler: handlers/questions.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Ref LambdaS3Key
+      MemorySize: 512
+      Timeout: 60   # AI call can take a while
+      Environment:
+        Variables:
+          DYNAMODB_TABLE: !Sub interview-assistant-${Environment}
+          AI_API_URL: !Ref AiApiUrl
+          AI_API_KEY: !Ref AiApiKey
+          CORS_ORIGIN: !Ref CorsOrigin
+
+  ReportsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ia-reports-${Environment}
+      Runtime: nodejs20.x
+      Handler: handlers/reports.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Ref LambdaS3Key
+      MemorySize: 512
+      Timeout: 60
+      Environment:
+        Variables:
+          DYNAMODB_TABLE: !Sub interview-assistant-${Environment}
+          AI_API_URL: !Ref AiApiUrl
+          AI_API_KEY: !Ref AiApiKey
+          CORS_ORIGIN: !Ref CorsOrigin
+
+  # ── HTTP API (cheaper than REST API, ~70% cost reduction) ─────────────────
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub ia-api-${Environment}
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref CorsOrigin
+          - 'http://localhost:5173'
+        AllowMethods: [GET, POST, PUT, DELETE, OPTIONS]
+        AllowHeaders: [Content-Type, x-api-key, Authorization]
+        MaxAge: 86400
+
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: !Ref Environment
+      AutoDeploy: true
+
+  # Sessions routes
+  SessionsIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SessionsFunction.Arn}/invocations
+      PayloadFormatVersion: '2.0'
+
+  SessionsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: '$default'
+      Target: !Sub integrations/${SessionsIntegration}
+
+  SessionsPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SessionsFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*
+
+  QuestionsIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${QuestionsFunction.Arn}/invocations
+      PayloadFormatVersion: '2.0'
+
+  QuestionsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'POST /sessions/{id}/questions'
+      Target: !Sub integrations/${QuestionsIntegration}
+
+  QuestionsPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref QuestionsFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*
+
+  ReportsIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ReportsFunction.Arn}/invocations
+      PayloadFormatVersion: '2.0'
+
+  ReportsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'ANY /sessions/{id}/report'
+      Target: !Sub integrations/${ReportsIntegration}
+
+  ReportsPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ReportsFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*
+
+Outputs:
+  ApiUrl:
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+    Export:
+      Name: !Sub InterviewAssistant-${Environment}-ApiUrl
