@@ -64,6 +64,7 @@ Resources:
                 Action:
                   - lambda:UpdateFunctionCode
                   - lambda:GetFunction
+                  - lambda:GetFunctionConfiguration
                   - lambda:PublishVersion
                 Resource: !Sub arn:aws:lambda:*:${AWS::AccountId}:function:ia-*
 
@@ -75,11 +76,16 @@ Resources:
                   - cloudformation:DescribeStacks
                   - cloudformation:DescribeStackEvents
                   - cloudformation:GetTemplate
-                  - cloudformation:ValidateTemplate
                   - cloudformation:CreateChangeSet
                   - cloudformation:ExecuteChangeSet
                   - cloudformation:DescribeChangeSet
+                  - cloudformation:ListChangeSets
                 Resource: !Sub arn:aws:cloudformation:*:${AWS::AccountId}:stack/ia-*
+              - Effect: Allow
+                Action:
+                  - cloudformation:GetTemplateSummary
+                  - cloudformation:ValidateTemplate
+                Resource: '*'
 
               # IAM for CloudFormation (pass role)
               - Effect: Allow
