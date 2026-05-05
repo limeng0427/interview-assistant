@@ -72,7 +72,7 @@ async function callTeIhi(messages: TeIhiMessage[], maxTokens = 4096): Promise<st
     },
     body: JSON.stringify({
       provider: 'anthropic',
-      model: 'claude-sonnet-4-6',
+      model: 'claude-haiku-4-5-20251001',
       messages,
       max_tokens: maxTokens,
     }),
