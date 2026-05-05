@@ -5,16 +5,14 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
 import {
-  Box, Typography, Card, CardContent, Button, TextField,
-  FormControl, InputLabel, Select, MenuItem, Chip, Grid,
+  Box, Typography, Card, CardContent, Button, TextField, Grid,
   CircularProgress, Alert, Divider, ToggleButton, ToggleButtonGroup,
-  FormHelperText, Stepper, Step, StepLabel,
+  FormHelperText,
 } from '@mui/material';
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import CloseIcon from '@mui/icons-material/Close';
 import CheckIcon from '@mui/icons-material/Check';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import { useStore } from '@/store/interviewStore';
@@ -46,22 +44,28 @@ const SENIORITY_OPTIONS: Array<{ value: SeniorityLevel; label: string }> = [
   { value: 'lead',          label: 'Lead' },
 ];
 
+const DRAFT_KEY = 'ia:draft:interview';
+
 export default function NewInterviewPage() {
   const navigate = useNavigate();
   const { dispatch } = useStore();
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [draftSaved, setDraftSaved] = useState(false);
+  const [hasDraft, setHasDraft] = useState(() => !!localStorage.getItem(DRAFT_KEY));
 
-  const { control, handleSubmit, watch, setValue, formState: { errors } } = useForm<FormValues>({
+  const savedDraft = hasDraft ? JSON.parse(localStorage.getItem(DRAFT_KEY)!) as Partial<FormValues> : null;
+
+  const { control, handleSubmit, watch, setValue, getValues, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      mode: 'interviewer',
-      candidateName: '',
-      jobTitle: '',
-      jobDescription: '',
-      seniority: 'senior',
-      selectedGroups: ['technical', 'behavioural', 'system-design'],
-      questionsPerGroup: 4,
+      mode: (savedDraft?.mode ?? 'interviewer') as FormValues['mode'],
+      candidateName: savedDraft?.candidateName ?? '',
+      jobTitle: savedDraft?.jobTitle ?? '',
+      jobDescription: savedDraft?.jobDescription ?? '',
+      seniority: (savedDraft?.seniority ?? 'senior') as FormValues['seniority'],
+      selectedGroups: savedDraft?.selectedGroups ?? ['technical', 'behavioural', 'system-design'],
+      questionsPerGroup: savedDraft?.questionsPerGroup ?? 4,
     },
   });
 
@@ -70,6 +74,18 @@ export default function NewInterviewPage() {
   const mode = watch('mode');
   const jobTitle = watch('jobTitle');
   const seniority = watch('seniority');
+
+  const saveDraft = () => {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(getValues()));
+    setHasDraft(true);
+    setDraftSaved(true);
+    setTimeout(() => setDraftSaved(false), 1800);
+  };
+
+  const clearDraft = () => {
+    localStorage.removeItem(DRAFT_KEY);
+    setHasDraft(false);
+  };
 
   const toggleGroup = (group: QuestionGroup) => {
     const current = selectedGroups;
@@ -109,6 +125,7 @@ export default function NewInterviewPage() {
         updatedAt: new Date().toISOString(),
       };
 
+      clearDraft();
       dispatch({ type: 'ADD_SESSION', session });
       navigate('/workspace');
     } catch (e) {
@@ -137,10 +154,21 @@ export default function NewInterviewPage() {
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button variant="outlined" startIcon={<CloseIcon />} onClick={() => navigate('/')}>Cancel</Button>
-          <Button variant="outlined" startIcon={<SaveOutlinedIcon />}>Save draft</Button>
+          <Button variant="outlined" startIcon={<SaveOutlinedIcon />} onClick={saveDraft}>
+            {draftSaved ? 'Saved!' : 'Save draft'}
+          </Button>
         </Box>
       </Box>
 
+      {hasDraft && savedDraft?.jobTitle && (
+        <Alert
+          severity="info"
+          sx={{ mb: 2 }}
+          action={<Button size="small" color="inherit" onClick={clearDraft}>Discard</Button>}
+        >
+          Draft restored: <strong>{savedDraft.jobTitle}</strong>
+        </Alert>
+      )}
       <form onSubmit={handleSubmit(onSubmit)}>
         <Grid container spacing={3}>
           {/* Left: form */}

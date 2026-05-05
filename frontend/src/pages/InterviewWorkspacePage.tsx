@@ -1,26 +1,32 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Box, Typography, Button, Grid, Card, CardContent, Alert,
+  Box, Typography, Button, Grid, Alert,
+  Dialog, DialogTitle, DialogContent, DialogActions,
+  TextField, FormControl, InputLabel, Select, MenuItem,
 } from '@mui/material';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import AddIcon from '@mui/icons-material/Add';
-import { useStore } from '@/store/interviewStore';
+import WorkOutlineIcon from '@mui/icons-material/WorkOutline';
+import { useStore, createQuestion } from '@/store/interviewStore';
 import { QuestionCard } from '@/components/QuestionCard';
 import { QuestionGroupSidebar } from '@/components/QuestionGroupSidebar';
 import { ProgressSummary } from '@/components/ProgressSummary';
 import { EmptyState } from '@/components/EmptyState';
-import { useState } from 'react';
+import { GROUP_LABELS } from '@/components/QuestionGroupSidebar';
 import type { QuestionGroup, QuestionStatus } from '@/types/interview';
-import WorkOutlineIcon from '@mui/icons-material/WorkOutline';
 
 export default function InterviewWorkspacePage() {
   const navigate = useNavigate();
-  const { state, dispatch, activeSession } = useStore();
+  const { dispatch, activeSession } = useStore();
   const [activeGroup, setActiveGroup] = useState<QuestionGroup | null>(null);
   const [showExamples, setShowExamples] = useState(true);
+  const [addOpen, setAddOpen] = useState(false);
+  const [newQuestion, setNewQuestion] = useState('');
+  const [newGroup, setNewGroup] = useState<QuestionGroup>('technical');
+  const [newDifficulty, setNewDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
 
   const session = activeSession;
   const groups = session ? [...new Set(session.questions.map((q) => q.group))] as QuestionGroup[] : [];
@@ -138,6 +144,57 @@ export default function InterviewWorkspacePage() {
         </Alert>
       )}
 
+      {/* Add question dialog */}
+      <Dialog open={addOpen} onClose={() => setAddOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Add question</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '12px !important' }}>
+          <TextField
+            label="Question"
+            multiline
+            minRows={3}
+            fullWidth
+            value={newQuestion}
+            onChange={(e) => setNewQuestion(e.target.value)}
+            placeholder="Enter your question text…"
+          />
+          <FormControl fullWidth size="small">
+            <InputLabel>Group</InputLabel>
+            <Select value={newGroup} label="Group" onChange={(e) => setNewGroup(e.target.value as QuestionGroup)}>
+              {Object.entries(GROUP_LABELS).map(([k, v]) => (
+                <MenuItem key={k} value={k}>{v}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth size="small">
+            <InputLabel>Difficulty</InputLabel>
+            <Select value={newDifficulty} label="Difficulty" onChange={(e) => setNewDifficulty(e.target.value as 'easy' | 'medium' | 'hard')}>
+              <MenuItem value="easy">Easy</MenuItem>
+              <MenuItem value="medium">Medium</MenuItem>
+              <MenuItem value="hard">Hard</MenuItem>
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!newQuestion.trim()}
+            onClick={() => {
+              if (!session || !newQuestion.trim()) return;
+              dispatch({
+                type: 'ADD_QUESTION',
+                sessionId: session.id,
+                question: createQuestion(newGroup, newQuestion.trim(), newDifficulty),
+              });
+              setNewQuestion('');
+              setAddOpen(false);
+            }}
+          >
+            Add
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Body: sidebar + questions */}
       <Grid container sx={{ flex: 1, minHeight: 0 }}>
         {/* Sidebar */}
@@ -169,7 +226,9 @@ export default function InterviewWorkspacePage() {
                     {currentGroupQuestions.filter(q => q.status !== 'not-asked').length} of {currentGroupQuestions.length} reviewed
                   </Typography>
                 </Box>
-                <Button size="small" variant="outlined" startIcon={<AddIcon />}>Add question</Button>
+                <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => { setNewGroup(activeGroup); setAddOpen(true); }}>
+                  Add question
+                </Button>
               </Box>
 
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>

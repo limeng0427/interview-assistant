@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "build": "tsc",
-    "bundle": "npm run build && node scripts/bundle.js",
-    "lint": "eslint src --ext ts"
+    "bundle": "tsx scripts/bundle.ts",
+    "lint": "eslint src --ext ts",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.600.0",
@@ -16,6 +17,8 @@
     "@types/aws-lambda": "^8.10.143",
     "@types/node": "^20.14.0",
     "@types/uuid": "^10.0.0",
+    "esbuild": "^0.23.0",
+    "tsx": "^4.16.0",
     "typescript": "^5.5.3"
   }
 }

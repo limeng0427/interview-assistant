@@ -1,14 +1,16 @@
 // Lambda handler for AI report generation.
-// Route: POST /sessions/{id}/report
+// Routes:
+//   GET  /sessions/{id}/report — fetch existing report
+//   POST /sessions/{id}/report — generate and store report
 
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 import { db } from '../services/dynamoService';
-import { aiProxy } from '../services/aiProxy';
+import { aiProxy, type GenerateReportPayload } from '../services/aiProxy';
 
 const headers = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': process.env.CORS_ORIGIN ?? '*',
-  'Access-Control-Allow-Headers': 'Content-Type,x-api-key',
+  'Access-Control-Allow-Headers': 'Content-Type,Authorization',
   'Access-Control-Allow-Methods': 'POST,GET,OPTIONS',
 };
 
@@ -22,27 +24,24 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'Session ID required' }) };
   }
 
-  // GET /sessions/{id}/report — fetch existing report
   if (event.requestContext.http.method === 'GET') {
     const report = await db.getReport(sessionId);
     if (!report) return { statusCode: 404, headers, body: JSON.stringify({ error: 'Report not found' }) };
     return { statusCode: 200, headers, body: JSON.stringify(report) };
   }
 
-  // POST /sessions/{id}/report — generate report
   try {
     const session = await db.getSession(sessionId);
     if (!session) {
       return { statusCode: 404, headers, body: JSON.stringify({ error: 'Session not found' }) };
     }
 
-    const report = await aiProxy.generateReport({ session: session as Record<string, unknown> });
+    const payload: GenerateReportPayload = {
+      session: session as GenerateReportPayload['session'],
+    };
+    const report = await aiProxy.generateReport(payload);
 
-    await db.putReport({
-      ...report,
-      sessionId,
-      generatedAt: new Date().toISOString(),
-    });
+    await db.putReport({ ...report });
 
     return { statusCode: 200, headers, body: JSON.stringify(report) };
   } catch (e) {

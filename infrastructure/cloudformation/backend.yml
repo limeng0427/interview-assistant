@@ -15,16 +15,29 @@ Parameters:
     Default: backend/lambda.zip
   AiApiUrl:
     Type: String
-    Description: Custom AI API gateway URL
+    Description: Te Ihi gateway URL (https://te-ihi.kotahirau.com/)
     Default: ''
   AiApiKey:
     Type: String
-    Description: API key for the custom AI gateway
+    Description: Te Ihi API key
     NoEcho: true
     Default: ''
   CorsOrigin:
     Type: String
     Default: 'https://interview-assistant.kotahirau.com'
+  UserPoolArn:
+    Type: String
+    Description: Cognito User Pool ARN (from auth stack output)
+    Default: ''
+  UserPoolClientId:
+    Type: String
+    Description: Cognito User Pool Client ID (from auth stack output)
+    Default: ''
+
+Conditions:
+  HasAuth: !And
+    - !Not [!Equals [!Ref UserPoolArn, '']]
+    - !Not [!Equals [!Ref UserPoolClientId, '']]
 
 Resources:
   # ── IAM role ──────────────────────────────────────────────────────────────
@@ -52,19 +65,11 @@ Resources:
                   - dynamodb:UpdateItem
                   - dynamodb:DeleteItem
                   - dynamodb:Query
-                  - dynamodb:Scan
                 Resource:
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/interview-assistant-${Environment}'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/interview-assistant-${Environment}/index/*'
 
   # ── Lambda functions ───────────────────────────────────────────────────────
-  CommonEnv: &CommonEnv
-    DYNAMODB_TABLE: !Sub interview-assistant-${Environment}
-    AI_API_URL: !Ref AiApiUrl
-    AI_API_KEY: !Ref AiApiKey
-    CORS_ORIGIN: !Ref CorsOrigin
-    NODE_OPTIONS: '--enable-source-maps'
-
   SessionsFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -80,9 +85,8 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_TABLE: !Sub interview-assistant-${Environment}
-          AI_API_URL: !Ref AiApiUrl
-          AI_API_KEY: !Ref AiApiKey
           CORS_ORIGIN: !Ref CorsOrigin
+          NODE_OPTIONS: '--enable-source-maps'
 
   QuestionsFunction:
     Type: AWS::Lambda::Function
@@ -95,13 +99,14 @@ Resources:
         S3Bucket: !Ref LambdaS3Bucket
         S3Key: !Ref LambdaS3Key
       MemorySize: 512
-      Timeout: 60   # AI call can take a while
+      Timeout: 60
       Environment:
         Variables:
           DYNAMODB_TABLE: !Sub interview-assistant-${Environment}
           AI_API_URL: !Ref AiApiUrl
           AI_API_KEY: !Ref AiApiKey
           CORS_ORIGIN: !Ref CorsOrigin
+          NODE_OPTIONS: '--enable-source-maps'
 
   ReportsFunction:
     Type: AWS::Lambda::Function
@@ -121,8 +126,9 @@ Resources:
           AI_API_URL: !Ref AiApiUrl
           AI_API_KEY: !Ref AiApiKey
           CORS_ORIGIN: !Ref CorsOrigin
+          NODE_OPTIONS: '--enable-source-maps'
 
-  # ── HTTP API (cheaper than REST API, ~70% cost reduction) ─────────────────
+  # ── HTTP API ───────────────────────────────────────────────────────────────
   HttpApi:
     Type: AWS::ApiGatewayV2::Api
     Properties:
@@ -133,7 +139,7 @@ Resources:
           - !Ref CorsOrigin
           - 'http://localhost:5173'
         AllowMethods: [GET, POST, PUT, DELETE, OPTIONS]
-        AllowHeaders: [Content-Type, x-api-key, Authorization]
+        AllowHeaders: [Content-Type, Authorization]
         MaxAge: 86400
 
   ApiStage:
@@ -143,7 +149,23 @@ Resources:
       StageName: !Ref Environment
       AutoDeploy: true
 
-  # Sessions routes
+  # JWT authorizer (only created when Cognito is configured)
+  JwtAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Condition: HasAuth
+    Properties:
+      ApiId: !Ref HttpApi
+      Name: CognitoAuthorizer
+      AuthorizerType: JWT
+      IdentitySource: '$request.header.Authorization'
+      JwtConfiguration:
+        Audience:
+          - !Ref UserPoolClientId
+        Issuer: !Sub
+          - 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}'
+          - UserPoolId: !Select [5, !Split ['/', !Ref UserPoolArn]]
+
+  # ── Integrations & routes ──────────────────────────────────────────────────
   SessionsIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
@@ -152,12 +174,15 @@ Resources:
       IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SessionsFunction.Arn}/invocations
       PayloadFormatVersion: '2.0'
 
+  # $default catches all session CRUD routes
   SessionsRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref HttpApi
       RouteKey: '$default'
       Target: !Sub integrations/${SessionsIntegration}
+      AuthorizationType: !If [HasAuth, JWT, NONE]
+      AuthorizerId: !If [HasAuth, !Ref JwtAuthorizer, !Ref AWS::NoValue]
 
   SessionsPermission:
     Type: AWS::Lambda::Permission
@@ -175,12 +200,25 @@ Resources:
       IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${QuestionsFunction.Arn}/invocations
       PayloadFormatVersion: '2.0'
 
+  # POST /questions — generate only (no session ID)
   QuestionsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'POST /questions'
+      Target: !Sub integrations/${QuestionsIntegration}
+      AuthorizationType: !If [HasAuth, JWT, NONE]
+      AuthorizerId: !If [HasAuth, !Ref JwtAuthorizer, !Ref AWS::NoValue]
+
+  # POST /sessions/{id}/questions — generate and persist
+  SessionQuestionsRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref HttpApi
       RouteKey: 'POST /sessions/{id}/questions'
       Target: !Sub integrations/${QuestionsIntegration}
+      AuthorizationType: !If [HasAuth, JWT, NONE]
+      AuthorizerId: !If [HasAuth, !Ref JwtAuthorizer, !Ref AWS::NoValue]
 
   QuestionsPermission:
     Type: AWS::Lambda::Permission
@@ -204,6 +242,8 @@ Resources:
       ApiId: !Ref HttpApi
       RouteKey: 'ANY /sessions/{id}/report'
       Target: !Sub integrations/${ReportsIntegration}
+      AuthorizationType: !If [HasAuth, JWT, NONE]
+      AuthorizerId: !If [HasAuth, !Ref JwtAuthorizer, !Ref AWS::NoValue]
 
   ReportsPermission:
     Type: AWS::Lambda::Permission

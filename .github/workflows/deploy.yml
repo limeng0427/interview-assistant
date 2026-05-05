@@ -35,7 +35,7 @@ jobs:
             infra:
               - 'infrastructure/**'
 
-  # ── Frontend: build + deploy to S3 + invalidate CloudFront ──────────────
+  # ── Frontend: type-check + build + deploy ───────────────────────────────
   deploy-frontend:
     needs: changes
     if: needs.changes.outputs.frontend == 'true' || github.event_name == 'push'
@@ -60,8 +60,10 @@ jobs:
       - name: Build
         working-directory: frontend
         env:
-          VITE_AI_API_URL: ${{ secrets.VITE_AI_API_URL }}
-          VITE_AI_API_KEY: ${{ secrets.VITE_AI_API_KEY }}
+          VITE_AI_API_URL:             ${{ secrets.VITE_AI_API_URL }}
+          VITE_COGNITO_USER_POOL_ID:   ${{ secrets.VITE_COGNITO_USER_POOL_ID }}
+          VITE_COGNITO_CLIENT_ID:      ${{ secrets.VITE_COGNITO_CLIENT_ID }}
+          VITE_COGNITO_DOMAIN:         ${{ secrets.VITE_COGNITO_DOMAIN }}
         run: npm run build
 
       - name: Configure AWS credentials (OIDC)
@@ -88,7 +90,7 @@ jobs:
             --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
             --paths "/*"
 
-  # ── Backend: build + upload Lambda zip + update function code ────────────
+  # ── Backend: type-check + bundle + deploy ───────────────────────────────
   deploy-backend:
     needs: changes
     if: needs.changes.outputs.backend == 'true' || github.event_name == 'push'
@@ -106,15 +108,13 @@ jobs:
         working-directory: backend
         run: npm ci
 
-      - name: Build TypeScript
+      - name: Type check
         working-directory: backend
-        run: npm run build
+        run: npm run type-check
 
-      - name: Package Lambda zip
+      - name: Bundle Lambda
         working-directory: backend
-        run: |
-          cp -r node_modules dist/
-          cd dist && zip -r ../lambda.zip . && cd ..
+        run: npm run bundle
 
       - name: Configure AWS credentials (OIDC)
         if: github.ref == 'refs/heads/main'
@@ -137,7 +137,9 @@ jobs:
               --function-name $fn \
               --s3-bucket ${{ secrets.LAMBDA_BUCKET_NAME }} \
               --s3-key backend/lambda.zip \
-              --publish
+              --publish \
+              --output text --query 'FunctionArn'
+            aws lambda wait function-updated --function-name $fn
           done
 
   # ── Infrastructure: deploy CloudFormation stacks ─────────────────────────
@@ -154,6 +156,22 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Deploy auth stack (us-east-1 — matches Google OAuth redirect URL)
+        env:
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          aws cloudformation deploy \
+            --template-file infrastructure/cloudformation/auth.yml \
+            --stack-name ia-auth-${{ env.ENVIRONMENT }} \
+            --region us-east-1 \
+            --parameter-overrides \
+              Environment=${{ env.ENVIRONMENT }} \
+              GoogleClientId=${{ secrets.GOOGLE_CLIENT_ID }} \
+              GoogleClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET }} \
+              FrontendUrl=https://interview-assistant.kotahirau.com \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset
+
       - name: Deploy database stack
         run: |
           aws cloudformation deploy \
@@ -165,6 +183,18 @@ jobs:
 
       - name: Deploy backend stack
         run: |
+          # Auth stack is in us-east-1 — read from there
+          USER_POOL_ARN=$(aws cloudformation describe-stacks \
+            --stack-name ia-auth-${{ env.ENVIRONMENT }} \
+            --region us-east-1 \
+            --query 'Stacks[0].Outputs[?OutputKey==`UserPoolArn`].OutputValue' \
+            --output text 2>/dev/null || echo '')
+          USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks \
+            --stack-name ia-auth-${{ env.ENVIRONMENT }} \
+            --region us-east-1 \
+            --query 'Stacks[0].Outputs[?OutputKey==`UserPoolClientId`].OutputValue' \
+            --output text 2>/dev/null || echo '')
+
           aws cloudformation deploy \
             --template-file infrastructure/cloudformation/backend.yml \
             --stack-name ia-backend-${{ env.ENVIRONMENT }} \
@@ -173,6 +203,8 @@ jobs:
               LambdaS3Bucket=${{ secrets.LAMBDA_BUCKET_NAME }} \
               AiApiUrl=${{ secrets.AI_API_URL }} \
               AiApiKey=${{ secrets.AI_API_KEY }} \
+              UserPoolArn="$USER_POOL_ARN" \
+              UserPoolClientId="$USER_POOL_CLIENT_ID" \
             --capabilities CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
 

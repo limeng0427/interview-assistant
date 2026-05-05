@@ -14,7 +14,7 @@ Resources:
     UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub interview-assistant-${Environment}
-      BillingMode: PAY_PER_REQUEST   # on-demand — cheapest for low/variable traffic
+      BillingMode: PAY_PER_REQUEST
       TableClass: STANDARD
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
@@ -30,6 +30,8 @@ Resources:
           AttributeType: S
         - AttributeName: updatedAt
           AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
 
       KeySchema:
         - AttributeName: PK
@@ -37,11 +39,21 @@ Resources:
         - AttributeName: SK
           KeyType: RANGE
 
-      # GSI for listing sessions by type + date (needed until user auth is added)
       GlobalSecondaryIndexes:
+        # Legacy index for unauthenticated / dev queries
         - IndexName: TypeIndex
           KeySchema:
             - AttributeName: type
+              KeyType: HASH
+            - AttributeName: updatedAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+        # User-scoped session listing (used in production with Cognito auth)
+        - IndexName: UserIndex
+          KeySchema:
+            - AttributeName: userId
               KeyType: HASH
             - AttributeName: updatedAt
               KeyType: RANGE

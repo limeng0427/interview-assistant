@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Card, CardContent, CardActionArea, Button, Chip,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Avatar, LinearProgress, Grid, Paper,
+  Avatar, LinearProgress, Grid, TextField, InputAdornment,
 } from '@mui/material';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -11,8 +12,8 @@ import SearchIcon from '@mui/icons-material/Search';
 import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { useStore } from '@/store/interviewStore';
+import { useAuth } from '@/hooks/useAuth';
 import { storageService } from '@/services/storageService';
-import type { InterviewSession } from '@/types/interview';
 
 const REC_STYLES: Record<string, { label: string; bgcolor: string; color: string }> = {
   'strong-hire': { label: 'Strong hire', bgcolor: '#E8F5E9', color: '#2E7D32' },
@@ -39,14 +40,24 @@ function avatarColor(name: string) {
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { state, dispatch } = useStore();
-  const sessions = state.sessions;
+  const { user } = useAuth();
+  const [search, setSearch] = useState('');
+
+  const allSessions = state.sessions;
+  const sessions = search.trim()
+    ? allSessions.filter((s) => {
+        const q = search.toLowerCase();
+        return (
+          s.setup.candidateName?.toLowerCase().includes(q) ||
+          s.setup.jobTitle.toLowerCase().includes(q)
+        );
+      })
+    : allSessions;
+
   const mode = 'interviewer';
 
-  const inProgress = sessions.filter((s) => {
-    const report = storageService.getReportForSession(s.id);
-    return !report;
-  });
-  const withReports = sessions.filter((s) => storageService.getReportForSession(s.id));
+  const inProgress = allSessions.filter((s) => !storageService.getReportForSession(s.id));
+  const withReports = allSessions.filter((s) => storageService.getReportForSession(s.id));
 
   const quickCards = mode === 'interviewer'
     ? [
@@ -82,7 +93,7 @@ export default function DashboardPage() {
       <Box sx={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', mb: 3, pb: 3, borderBottom: '1px solid', borderColor: 'divider' }}>
         <Box>
           <Typography variant="h4" gutterBottom sx={{ mb: 0.5 }}>
-            Welcome back, Jordan
+            Welcome back{user?.given_name ? `, ${user.given_name}` : ''}
           </Typography>
           <Typography variant="body1" sx={{ color: 'text.secondary' }}>
             {inProgress.length > 0
@@ -90,8 +101,15 @@ export default function DashboardPage() {
               : 'No interviews in progress. Start a new one to get going.'}
           </Typography>
         </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="outlined" startIcon={<SearchIcon />}>Search</Button>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          <TextField
+            size="small"
+            placeholder="Search sessions…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18, color: 'text.secondary' }} /></InputAdornment> }}
+            sx={{ width: 200 }}
+          />
           <Button variant="contained" startIcon={<AddCircleOutlineIcon />} onClick={() => navigate('/new')}>
             New interview
           </Button>

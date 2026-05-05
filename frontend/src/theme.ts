@@ -54,7 +54,8 @@ export const theme = createTheme({
     '0 8px 28px rgba(15, 23, 42, 0.08), 0 2px 6px rgba(15, 23, 42, 0.04)',
     '0 12px 40px rgba(15, 23, 42, 0.10), 0 4px 8px rgba(15, 23, 42, 0.05)',
     ...Array(19).fill('none') as string[],
-  ] as Parameters<typeof createTheme>[0]['shadows'],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ] as any,
   components: {
     MuiCssBaseline: {
       styleOverrides: {

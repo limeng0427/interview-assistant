@@ -122,6 +122,25 @@ Resources:
                   - route53:ListResourceRecordSets
                 Resource: '*'
 
+              # Cognito (for auth stack deploys)
+              - Effect: Allow
+                Action:
+                  - cognito-idp:CreateUserPool
+                  - cognito-idp:UpdateUserPool
+                  - cognito-idp:DescribeUserPool
+                  - cognito-idp:CreateUserPoolClient
+                  - cognito-idp:UpdateUserPoolClient
+                  - cognito-idp:DescribeUserPoolClient
+                  - cognito-idp:CreateUserPoolDomain
+                  - cognito-idp:UpdateUserPoolDomain
+                  - cognito-idp:DeleteUserPoolDomain
+                  - cognito-idp:DescribeUserPoolDomain
+                  - cognito-idp:CreateIdentityProvider
+                  - cognito-idp:UpdateIdentityProvider
+                  - cognito-idp:DeleteIdentityProvider
+                  - cognito-idp:TagResource
+                Resource: !Sub arn:aws:cognito-idp:*:${AWS::AccountId}:userpool/*
+
 Outputs:
   DeployRoleArn:
     Value: !GetAtt DeployRole.Arn

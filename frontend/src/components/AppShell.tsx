@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText,
-  Typography, Divider, Avatar, Chip, Tooltip,
+  Typography, Divider, Avatar, Tooltip, IconButton,
 } from '@mui/material';
 import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
@@ -12,7 +12,10 @@ import BookOutlinedIcon from '@mui/icons-material/BookOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
+import LogoutIcon from '@mui/icons-material/Logout';
 import { useStore } from '@/store/interviewStore';
+import { useAuth } from '@/hooks/useAuth';
+import { isAuthConfigured } from '@/auth';
 
 const DRAWER_WIDTH = 240;
 
@@ -36,6 +39,7 @@ export function AppShell({ children }: AppShellProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { state, dispatch } = useStore();
+  const { user, logout } = useAuth();
 
   const mode = state.activeSessionId
     ? state.sessions.find((s) => s.id === state.activeSessionId)?.setup.mode ?? 'interviewer'
@@ -187,13 +191,23 @@ export function AppShell({ children }: AppShellProps) {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
             <Avatar sx={{ width: 28, height: 28, fontSize: 12, fontWeight: 600,
               background: 'linear-gradient(135deg, #FFAB76, #FF7043)' }}>
-              JR
+              {user ? (user.given_name?.[0] ?? user.email[0]).toUpperCase() : '?'}
             </Avatar>
             <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Typography sx={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.2 }}>Jordan Reyes</Typography>
-              <Typography sx={{ fontSize: 11.5, color: 'text.secondary', lineHeight: 1.2 }}>Hiring manager</Typography>
+              <Typography sx={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {user?.name ?? user?.given_name ?? user?.email ?? 'Guest'}
+              </Typography>
+              <Typography sx={{ fontSize: 11.5, color: 'text.secondary', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {user?.email ?? ''}
+              </Typography>
             </Box>
-            <Chip label="Free" size="small" sx={{ fontSize: 10, height: 18 }} />
+            {isAuthConfigured && (
+              <Tooltip title="Sign out">
+                <IconButton size="small" onClick={logout} sx={{ color: 'text.secondary', flexShrink: 0 }}>
+                  <LogoutIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+            )}
           </Box>
         </Box>
       </Drawer>

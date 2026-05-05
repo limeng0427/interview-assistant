@@ -1,6 +1,6 @@
 import {
   Box, Typography, Card, CardContent, Chip, Button,
-  Grid, Divider, List, ListItem, ListItemIcon, ListItemText, Alert,
+  Grid, List, ListItem, ListItemIcon, ListItemText, Alert,
 } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
@@ -233,9 +233,9 @@ export function FinalReport({ report, session, onCopy, copied }: FinalReportProp
 }
 
 function ListCard({
-  title, items, icon, color, bgcolor,
+  title, items, icon, color,
 }: {
-  title: string; items: string[]; icon: React.ReactNode; color: string; bgcolor: string;
+  title: string; items: string[]; icon: React.ReactNode; color: string; bgcolor?: string;
 }) {
   return (
     <Card elevation={1} sx={{ height: '100%' }}>

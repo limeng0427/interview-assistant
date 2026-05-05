@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Interview Assistant — Cognito User Pool with Google SSO
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [prod, staging, dev]
+  GoogleClientId:
+    Type: String
+    Description: Google OAuth 2.0 client ID
+  GoogleClientSecret:
+    Type: String
+    Description: Google OAuth 2.0 client secret
+    NoEcho: true
+  FrontendUrl:
+    Type: String
+    Description: Frontend URL for callback/logout (e.g. https://interview-assistant.kotahirau.com)
+    Default: 'https://interview-assistant.kotahirau.com'
+
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ia-users-${Environment}
+      UsernameAttributes:
+        - email
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: false
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+        - Name: given_name
+          AttributeDataType: String
+          Required: false
+          Mutable: true
+        - Name: family_name
+          AttributeDataType: String
+          Required: false
+          Mutable: true
+      UserPoolAddOns:
+        AdvancedSecurityMode: OFF
+
+  GoogleIdentityProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Properties:
+      UserPoolId: !Ref UserPool
+      ProviderName: Google
+      ProviderType: Google
+      ProviderDetails:
+        client_id: !Ref GoogleClientId
+        client_secret: !Ref GoogleClientSecret
+        authorize_scopes: email profile openid
+      AttributeMapping:
+        email: email
+        given_name: given_name
+        family_name: family_name
+        username: sub
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: GoogleIdentityProvider
+    Properties:
+      ClientName: !Sub ia-web-${Environment}
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      SupportedIdentityProviders:
+        - COGNITO
+        - Google
+      CallbackURLs:
+        - !Ref FrontendUrl
+        - 'http://localhost:5173'
+      LogoutURLs:
+        - !Ref FrontendUrl
+        - 'http://localhost:5173'
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+      AccessTokenValidity: 60         # minutes
+      IdTokenValidity: 60
+      RefreshTokenValidity: 30        # days
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub interview-assistant-kotahirau-${Environment}
+      UserPoolId: !Ref UserPool
+
+Outputs:
+  UserPoolId:
+    Value: !Ref UserPool
+    Export:
+      Name: !Sub InterviewAssistant-${Environment}-UserPoolId
+
+  UserPoolArn:
+    Value: !GetAtt UserPool.Arn
+    Export:
+      Name: !Sub InterviewAssistant-${Environment}-UserPoolArn
+
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
+    Export:
+      Name: !Sub InterviewAssistant-${Environment}-UserPoolClientId
+
+  UserPoolDomain:
+    Value: !Sub interview-assistant-kotahirau-${Environment}.auth.${AWS::Region}.amazoncognito.com
+    Export:
+      Name: !Sub InterviewAssistant-${Environment}-UserPoolDomain

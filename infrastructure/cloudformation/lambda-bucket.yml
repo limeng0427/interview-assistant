@@ -2,7 +2,6 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: Interview Assistant — S3 bucket for Lambda deployment packages
 
 # Deploy this stack once before the backend stack.
-# The bucket stores Lambda zip files uploaded by CI/CD.
 
 Parameters:
   Environment:
@@ -17,6 +16,15 @@ Resources:
       BucketName: !Sub ia-lambda-deployments-${Environment}-${AWS::AccountId}
       VersioningConfiguration:
         Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
       LifecycleConfiguration:
         Rules:
           - Id: DeleteOldVersions

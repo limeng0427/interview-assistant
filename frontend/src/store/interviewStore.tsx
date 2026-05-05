@@ -1,14 +1,17 @@
 // Global interview state — React Context + useReducer.
-// Persists sessions to localStorage via storageService.
+// Persists to localStorage via storageService; syncs to backend when available.
 
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import { v4 as uuid } from 'uuid';
 import type {
   InterviewSession,
   InterviewQuestion,
+  QuestionGroup,
   QuestionStatus,
   CandidateReport,
 } from '@/types/interview';
 import { storageService } from '@/services/storageService';
+import { backendService } from '@/services/backendService';
 
 interface StoreState {
   sessions: InterviewSession[];
@@ -25,6 +28,7 @@ type Action =
   | { type: 'UPDATE_QUESTION'; sessionId: string; questionId: string; updates: Partial<InterviewQuestion> }
   | { type: 'SET_QUESTION_STATUS'; sessionId: string; questionId: string; status: QuestionStatus }
   | { type: 'SET_QUESTION_NOTES'; sessionId: string; questionId: string; notes: string }
+  | { type: 'ADD_QUESTION'; sessionId: string; question: InterviewQuestion }
   | { type: 'SET_ACTIVE_REPORT'; report: CandidateReport | null };
 
 function reducer(state: StoreState, action: Action): StoreState {
@@ -35,6 +39,7 @@ function reducer(state: StoreState, action: Action): StoreState {
     case 'ADD_SESSION': {
       const sessions = [action.session, ...state.sessions];
       storageService.saveSession(action.session);
+      backendService.createSession(action.session).catch(console.error);
       return { ...state, sessions, activeSessionId: action.session.id };
     }
 
@@ -43,11 +48,13 @@ function reducer(state: StoreState, action: Action): StoreState {
         s.id === action.session.id ? action.session : s
       );
       storageService.saveSession(action.session);
+      backendService.updateSession(action.session).catch(console.error);
       return { ...state, sessions };
     }
 
     case 'DELETE_SESSION': {
       storageService.deleteSession(action.id);
+      backendService.deleteSession(action.id).catch(console.error);
       return {
         ...state,
         sessions: state.sessions.filter((s) => s.id !== action.id),
@@ -61,7 +68,7 @@ function reducer(state: StoreState, action: Action): StoreState {
     case 'UPDATE_QUESTION': {
       const sessions = state.sessions.map((s) => {
         if (s.id !== action.sessionId) return s;
-        const updated = {
+        const updated: InterviewSession = {
           ...s,
           questions: s.questions.map((q) =>
             q.id === action.questionId ? { ...q, ...action.updates } : q
@@ -69,6 +76,7 @@ function reducer(state: StoreState, action: Action): StoreState {
           updatedAt: new Date().toISOString(),
         };
         storageService.saveSession(updated);
+        backendService.updateSession(updated).catch(console.error);
         return updated;
       });
       return { ...state, sessions };
@@ -90,6 +98,21 @@ function reducer(state: StoreState, action: Action): StoreState {
         updates: { notes: action.notes },
       });
 
+    case 'ADD_QUESTION': {
+      const sessions = state.sessions.map((s) => {
+        if (s.id !== action.sessionId) return s;
+        const updated: InterviewSession = {
+          ...s,
+          questions: [...s.questions, action.question],
+          updatedAt: new Date().toISOString(),
+        };
+        storageService.saveSession(updated);
+        backendService.updateSession(updated).catch(console.error);
+        return updated;
+      });
+      return { ...state, sessions };
+    }
+
     case 'SET_ACTIVE_REPORT':
       return { ...state, activeReport: action.report };
 
@@ -106,6 +129,24 @@ interface StoreContextValue {
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 
+export function createQuestion(
+  group: QuestionGroup,
+  question: string,
+  difficulty: InterviewQuestion['difficulty'] = 'medium'
+): InterviewQuestion {
+  return {
+    id: uuid(),
+    group,
+    question,
+    difficulty,
+    exampleAnswer: '',
+    evaluationCriteria: [],
+    followUpQuestions: [],
+    status: 'not-asked',
+    notes: '',
+  };
+}
+
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
     sessions: [],
@@ -114,7 +155,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    dispatch({ type: 'LOAD_SESSIONS', sessions: storageService.getSessions() });
+    // Load from backend if available, else localStorage
+    if (backendService.isAvailable) {
+      backendService.listSessions()
+        .then((sessions) => dispatch({ type: 'LOAD_SESSIONS', sessions }))
+        .catch(() => {
+          dispatch({ type: 'LOAD_SESSIONS', sessions: storageService.getSessions() });
+        });
+    } else {
+      dispatch({ type: 'LOAD_SESSIONS', sessions: storageService.getSessions() });
+    }
   }, []);
 
   const activeSession = state.sessions.find((s) => s.id === state.activeSessionId) ?? null;

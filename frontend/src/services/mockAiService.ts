@@ -5,8 +5,6 @@
 import { v4 as uuid } from 'uuid';
 import type {
   AIService,
-  GenerateQuestionsInput,
-  GenerateReportInput,
   InterviewQuestion,
   CandidateReport,
   QuestionGroup,

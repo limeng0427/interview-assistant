@@ -1,26 +1,34 @@
 // DynamoDB single-table service.
-// Table design: PK = SESSION#<id>, SK = METADATA | QUESTIONS | REPORT
+// Table design: PK = SESSION#<id>, SK = METADATA | REPORT
 
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient, GetCommand, PutCommand,
-  QueryCommand, DeleteCommand, UpdateCommand,
+  QueryCommand, DeleteCommand,
 } from '@aws-sdk/lib-dynamodb';
 
 const client = new DynamoDBClient({ region: process.env.AWS_REGION ?? 'ap-southeast-2' });
 export const ddb = DynamoDBDocumentClient.from(client);
 
 const TABLE = process.env.DYNAMODB_TABLE ?? 'interview-assistant';
+const TTL_DAYS = 90;
+
+function ttlFor(days: number) {
+  return Math.floor(Date.now() / 1000) + days * 86400;
+}
 
 export const db = {
-  async putSession(session: Record<string, unknown>) {
+  async putSession(session: Record<string, unknown>, userId?: string) {
     await ddb.send(new PutCommand({
       TableName: TABLE,
       Item: {
         PK: `SESSION#${session['id']}`,
         SK: 'METADATA',
+        type: 'session',
         ...session,
+        ...(userId ? { userId } : {}),
         updatedAt: new Date().toISOString(),
+        ttl: ttlFor(TTL_DAYS),
       },
     }));
   },
@@ -33,9 +41,20 @@ export const db = {
     return res.Item ?? null;
   },
 
+  async listSessionsByUser(userId: string) {
+    const res = await ddb.send(new QueryCommand({
+      TableName: TABLE,
+      IndexName: 'UserIndex',
+      KeyConditionExpression: 'userId = :uid',
+      ExpressionAttributeValues: { ':uid': userId },
+      Limit: 50,
+      ScanIndexForward: false,
+    }));
+    return res.Items ?? [];
+  },
+
   async listSessions() {
-    // In a real app, scope by userId (GSI). For now return a scan-like query.
-    // We use a reserved PK prefix pattern — swap for a user GSI when auth is added.
+    // Fallback for unauthenticated/dev — queries by type
     const res = await ddb.send(new QueryCommand({
       TableName: TABLE,
       IndexName: 'TypeIndex',
@@ -61,7 +80,9 @@ export const db = {
       Item: {
         PK: `SESSION#${report['sessionId']}`,
         SK: 'REPORT',
+        type: 'report',
         ...report,
+        ttl: ttlFor(TTL_DAYS),
       },
     }));
   },
