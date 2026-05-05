@@ -48,7 +48,7 @@ Resources:
           Required: false
           Mutable: true
       UserPoolAddOns:
-        AdvancedSecurityMode: OFF
+        AdvancedSecurityMode: 'OFF'
 
   GoogleIdentityProvider:
     Type: AWS::Cognito::UserPoolIdentityProvider

@@ -15,7 +15,7 @@ Parameters:
     Default: backend/lambda.zip
   AiApiUrl:
     Type: String
-    Description: Te Ihi gateway URL (https://te-ihi.kotahirau.com/)
+    Description: Te Ihi gateway URL
     Default: ''
   AiApiKey:
     Type: String
@@ -25,19 +25,12 @@ Parameters:
   CorsOrigin:
     Type: String
     Default: 'https://interview-assistant.kotahirau.com'
-  UserPoolArn:
-    Type: String
-    Description: Cognito User Pool ARN (from auth stack output)
-    Default: ''
   UserPoolClientId:
     Type: String
-    Description: Cognito User Pool Client ID (from auth stack output)
-    Default: ''
-
-Conditions:
-  HasAuth: !And
-    - !Not [!Equals [!Ref UserPoolArn, '']]
-    - !Not [!Equals [!Ref UserPoolClientId, '']]
+    Description: Cognito User Pool Client ID
+  UserPoolId:
+    Type: String
+    Description: Cognito User Pool ID (e.g. us-east-1_xxx)
 
 Resources:
   # ── IAM role ──────────────────────────────────────────────────────────────
@@ -75,7 +68,7 @@ Resources:
     Properties:
       FunctionName: !Sub ia-sessions-${Environment}
       Runtime: nodejs20.x
-      Handler: handlers/sessions.handler
+      Handler: dist/handlers/sessions.handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Code:
         S3Bucket: !Ref LambdaS3Bucket
@@ -93,7 +86,7 @@ Resources:
     Properties:
       FunctionName: !Sub ia-questions-${Environment}
       Runtime: nodejs20.x
-      Handler: handlers/questions.handler
+      Handler: dist/handlers/questions.handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Code:
         S3Bucket: !Ref LambdaS3Bucket
@@ -113,7 +106,7 @@ Resources:
     Properties:
       FunctionName: !Sub ia-reports-${Environment}
       Runtime: nodejs20.x
-      Handler: handlers/reports.handler
+      Handler: dist/handlers/reports.handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Code:
         S3Bucket: !Ref LambdaS3Bucket
@@ -149,21 +142,18 @@ Resources:
       StageName: !Ref Environment
       AutoDeploy: true
 
-  # JWT authorizer (only created when Cognito is configured)
   JwtAuthorizer:
     Type: AWS::ApiGatewayV2::Authorizer
-    Condition: HasAuth
     Properties:
       ApiId: !Ref HttpApi
       Name: CognitoAuthorizer
       AuthorizerType: JWT
-      IdentitySource: '$request.header.Authorization'
+      IdentitySource:
+        - "$request.header.Authorization"
       JwtConfiguration:
         Audience:
           - !Ref UserPoolClientId
-        Issuer: !Sub
-          - 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}'
-          - UserPoolId: !Select [5, !Split ['/', !Ref UserPoolArn]]
+        Issuer: !Sub 'https://cognito-idp.us-east-1.amazonaws.com/${UserPoolId}'
 
   # ── Integrations & routes ──────────────────────────────────────────────────
   SessionsIntegration:
@@ -174,15 +164,50 @@ Resources:
       IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SessionsFunction.Arn}/invocations
       PayloadFormatVersion: '2.0'
 
-  # $default catches all session CRUD routes
-  SessionsRoute:
+  SessionsRouteGet:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref HttpApi
-      RouteKey: '$default'
+      RouteKey: 'GET /sessions'
       Target: !Sub integrations/${SessionsIntegration}
-      AuthorizationType: !If [HasAuth, JWT, NONE]
-      AuthorizerId: !If [HasAuth, !Ref JwtAuthorizer, !Ref AWS::NoValue]
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  SessionsRoutePost:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'POST /sessions'
+      Target: !Sub integrations/${SessionsIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  SessionsRouteGetById:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'GET /sessions/{id}'
+      Target: !Sub integrations/${SessionsIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  SessionsRoutePut:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'PUT /sessions/{id}'
+      Target: !Sub integrations/${SessionsIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+
+  SessionsRouteDelete:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'DELETE /sessions/{id}'
+      Target: !Sub integrations/${SessionsIntegration}
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
 
   SessionsPermission:
     Type: AWS::Lambda::Permission
@@ -200,25 +225,23 @@ Resources:
       IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${QuestionsFunction.Arn}/invocations
       PayloadFormatVersion: '2.0'
 
-  # POST /questions — generate only (no session ID)
   QuestionsRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref HttpApi
       RouteKey: 'POST /questions'
       Target: !Sub integrations/${QuestionsIntegration}
-      AuthorizationType: !If [HasAuth, JWT, NONE]
-      AuthorizerId: !If [HasAuth, !Ref JwtAuthorizer, !Ref AWS::NoValue]
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
 
-  # POST /sessions/{id}/questions — generate and persist
   SessionQuestionsRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref HttpApi
       RouteKey: 'POST /sessions/{id}/questions'
       Target: !Sub integrations/${QuestionsIntegration}
-      AuthorizationType: !If [HasAuth, JWT, NONE]
-      AuthorizerId: !If [HasAuth, !Ref JwtAuthorizer, !Ref AWS::NoValue]
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
 
   QuestionsPermission:
     Type: AWS::Lambda::Permission
@@ -242,8 +265,8 @@ Resources:
       ApiId: !Ref HttpApi
       RouteKey: 'ANY /sessions/{id}/report'
       Target: !Sub integrations/${ReportsIntegration}
-      AuthorizationType: !If [HasAuth, JWT, NONE]
-      AuthorizerId: !If [HasAuth, !Ref JwtAuthorizer, !Ref AWS::NoValue]
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
 
   ReportsPermission:
     Type: AWS::Lambda::Permission

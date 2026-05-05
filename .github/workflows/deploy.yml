@@ -184,16 +184,16 @@ jobs:
       - name: Deploy backend stack
         run: |
           # Auth stack is in us-east-1 — read from there
-          USER_POOL_ARN=$(aws cloudformation describe-stacks \
-            --stack-name ia-auth-${{ env.ENVIRONMENT }} \
-            --region us-east-1 \
-            --query 'Stacks[0].Outputs[?OutputKey==`UserPoolArn`].OutputValue' \
-            --output text 2>/dev/null || echo '')
           USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks \
             --stack-name ia-auth-${{ env.ENVIRONMENT }} \
             --region us-east-1 \
             --query 'Stacks[0].Outputs[?OutputKey==`UserPoolClientId`].OutputValue' \
-            --output text 2>/dev/null || echo '')
+            --output text)
+          USER_POOL_ID=$(aws cloudformation describe-stacks \
+            --stack-name ia-auth-${{ env.ENVIRONMENT }} \
+            --region us-east-1 \
+            --query 'Stacks[0].Outputs[?OutputKey==`UserPoolId`].OutputValue' \
+            --output text)
 
           aws cloudformation deploy \
             --template-file infrastructure/cloudformation/backend.yml \
@@ -203,8 +203,8 @@ jobs:
               LambdaS3Bucket=${{ secrets.LAMBDA_BUCKET_NAME }} \
               AiApiUrl=${{ secrets.AI_API_URL }} \
               AiApiKey=${{ secrets.AI_API_KEY }} \
-              UserPoolArn="$USER_POOL_ARN" \
               UserPoolClientId="$USER_POOL_CLIENT_ID" \
+              UserPoolId="$USER_POOL_ID" \
             --capabilities CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
 
