@@ -56,7 +56,7 @@ interface TeIhiMessage {
   content: string;
 }
 
-async function callTeIhi(messages: TeIhiMessage[]): Promise<string> {
+async function callTeIhi(messages: TeIhiMessage[], maxTokens = 4096): Promise<string> {
   const AI_API_URL = process.env.AI_API_URL;
   const AI_API_KEY = process.env.AI_API_KEY;
 
@@ -74,6 +74,7 @@ async function callTeIhi(messages: TeIhiMessage[]): Promise<string> {
       provider: 'anthropic',
       model: 'claude-sonnet-4-6',
       messages,
+      max_tokens: maxTokens,
     }),
   });
 
@@ -149,7 +150,7 @@ Total: ${payload.groups.length * payload.questionsPerGroup} questions. Distribut
     const raw = await callTeIhi([
       { role: 'system', content: system },
       { role: 'user', content: user },
-    ]);
+    ], 8192);
 
     const questions = parseJson<InterviewQuestion[]>(raw);
     return questions.map((q) => ({ ...q, id: q.id ?? uuid(), status: 'not-asked' as const, notes: q.notes ?? '' }));
