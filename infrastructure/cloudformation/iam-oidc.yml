@@ -63,9 +63,14 @@ Resources:
               - Effect: Allow
                 Action:
                   - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
                   - lambda:GetFunction
                   - lambda:GetFunctionConfiguration
                   - lambda:PublishVersion
+                  - lambda:CreateFunction
+                  - lambda:DeleteFunction
+                  - lambda:AddPermission
+                  - lambda:RemovePermission
                 Resource: !Sub arn:aws:lambda:*:${AWS::AccountId}:function:ia-*
 
               # CloudFormation deploy
