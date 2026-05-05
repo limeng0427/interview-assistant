@@ -121,10 +121,10 @@ export const aiProxy = {
 Each element must match exactly:
 {
   "id": "<uuid-v4>",
-  "group": "<one of the requested groups>",
+  "group": "<the group name>",
   "question": "<the question text>",
   "difficulty": "<easy|medium|hard>",
-  "exampleAnswer": "<a strong 2-4 sentence example answer>",
+  "exampleAnswer": "<a strong 2-3 sentence example answer>",
   "evaluationCriteria": ["<criterion 1>", "<criterion 2>", "<criterion 3>"],
   "followUpQuestions": ["<follow-up 1>", "<follow-up 2>"],
   "status": "not-asked",
@@ -137,23 +137,27 @@ Calibrate difficulty to the seniority level. ${payload.seniority === 'junior' ? 
       ? `You are helping an interviewer assess a candidate for ${payload.jobTitle}.`
       : `You are helping a candidate practice for ${payload.jobTitle} interviews.`;
 
-    const user = `${modeContext}
+    // Generate each group in parallel so total time ≈ single-group time
+    const groupResults = await Promise.all(
+      payload.groups.map((group) => {
+        const user = `${modeContext}
 
 Role: ${payload.jobTitle}
 Seniority: ${payload.seniority}
 Job description:
 ${payload.jobDescription}
 
-Generate exactly ${payload.questionsPerGroup} questions for EACH of these groups: ${payload.groups.join(', ')}
-Total: ${payload.groups.length * payload.questionsPerGroup} questions. Distribute evenly — one group per question's "group" field.`;
+Generate exactly ${payload.questionsPerGroup} questions for the "${group}" group.
+Every question's "group" field must be "${group}".`;
 
-    const raw = await callTeIhi([
-      { role: 'system', content: system },
-      { role: 'user', content: user },
-    ], 8192);
+        return callTeIhi([
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ], 4096).then((raw) => parseJson<InterviewQuestion[]>(raw));
+      }),
+    );
 
-    const questions = parseJson<InterviewQuestion[]>(raw);
-    return questions.map((q) => ({ ...q, id: q.id ?? uuid(), status: 'not-asked' as const, notes: q.notes ?? '' }));
+    return groupResults.flat().map((q) => ({ ...q, id: q.id ?? uuid(), status: 'not-asked' as const, notes: q.notes ?? '' }));
   },
 
   async generateReport(payload: GenerateReportPayload): Promise<CandidateReport> {
